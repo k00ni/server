@@ -37,12 +37,14 @@ namespace OCA\Settings\AppInfo;
 
 use BadMethodCallException;
 use OC\AppFramework\Utility\TimeFactory;
+use OC\Authentication\Events\AppPasswordCreatedEvent;
 use OC\Authentication\Token\IProvider;
 use OC\Authentication\Token\IToken;
 use OC\Group\Manager;
 use OC\Server;
 use OCA\Settings\Activity\Provider;
 use OCA\Settings\Hooks;
+use OCA\Settings\Listener\AppPasswordCreatedActivityListener;
 use OCA\Settings\Mailer\NewUserMailHelper;
 use OCA\Settings\Middleware\SubadminMiddleware;
 use OCA\Settings\Search\AppSearch;
@@ -80,6 +82,9 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleware(SubadminMiddleware::class);
 		$context->registerSearchProvider(SectionSearch::class);
 		$context->registerSearchProvider(AppSearch::class);
+
+		// Register listeners
+		$context->registerEventListener(AppPasswordCreatedEvent::class, AppPasswordCreatedActivityListener::class);
 
 		/**
 		 * Core class wrappers
@@ -129,31 +134,6 @@ class Application extends App implements IBootstrap {
 	}
 
 	public function boot(IBootContext $context): void {
-		$context->injectFn(function (EventDispatcherInterface $dispatcher, IAppContainer $appContainer) {
-			$dispatcher->addListener('app_password_created', function (GenericEvent $event) use ($appContainer) {
-				if (($token = $event->getSubject()) instanceof IToken) {
-					/** @var IActivityManager $activityManager */
-					$activityManager = $appContainer->get(IActivityManager::class);
-					/** @var ILogger $logger */
-					$logger = $appContainer->get(ILogger::class);
-
-					$activity = $activityManager->generateEvent();
-					$activity->setApp('settings')
-						->setType('security')
-						->setAffectedUser($token->getUID())
-						->setAuthor($token->getUID())
-						->setSubject(Provider::APP_TOKEN_CREATED, ['name' => $token->getName()])
-						->setObject('app_token', $token->getId());
-
-					try {
-						$activityManager->publish($activity);
-					} catch (BadMethodCallException $e) {
-						$logger->logException($e, ['message' => 'could not publish activity', 'level' => ILogger::WARN]);
-					}
-				}
-			});
-		});
-
 		Util::connectHook('OC_User', 'post_setPassword', $this, 'onChangePassword');
 		Util::connectHook('OC_User', 'changeUser', $this, 'onChangeInfo');
 
